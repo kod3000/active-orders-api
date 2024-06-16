@@ -365,6 +365,12 @@ def get_sales(prior: bool = False, month: bool = False, lastmonth: bool = False,
     # if api_key != API_KEY:
     #     raise HTTPException(status_code=400, detail="Invalid API key")
 
+    prior = bool(prior)
+    month = bool(month)
+    lastmonth = bool(lastmonth)
+    quarter = bool(quarter)
+    priorquarter = bool(priorquarter)
+
     try:
         connection = get_db_connection()
         cursor = connection.cursor()
