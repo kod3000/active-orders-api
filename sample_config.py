@@ -1,6 +1,7 @@
 DB_CONFIG = {
     "host": "your_host",
     "user": "your_username",
+    "port": 3306,
     "password": "your_password",
     "database": "your_database"
 }

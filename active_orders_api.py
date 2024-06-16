@@ -18,6 +18,18 @@ class ActiveCart(BaseModel):
 def get_db_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
+@app.get("/health")
+def health_check():
+    try:
+        connection = get_db_connection()
+        if connection.is_connected():
+            return {"status": "OK", "database": "Connected"}
+        else:
+            return {"status": "Error", "database": "Not Connected"}
+    except mysql.connector.Error as error:
+        print(f"Error connecting to MySQL database: {error}")
+        return {"status": "Error", "database": "Not Connected"}
+
 @app.get("/active_carts")
 @sleep_and_retry
 @limits(calls=2, period=60) 
