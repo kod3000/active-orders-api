@@ -357,6 +357,75 @@ def backup_database():
         return {"message": "Backup skipped. Already performed within the last 2 hours."}
 
 
+@app.get("/sales")
+@sleep_and_retry
+@limits(calls=2, period=60)
+def get_sales(prior: bool = False, month: bool = False, lastmonth: bool = False, quarter: bool = False, priorquarter: bool = False):
+# def get_sales(api_key: str = Depends(api_key_header), prior: bool = False, month: bool = False, lastmonth: bool = False, quarter: bool = False, priorquarter: bool = False):
+    # if api_key != API_KEY:
+    #     raise HTTPException(status_code=400, detail="Invalid API key")
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor()
+
+        current_date = datetime.now().date()
+        start_date = None
+        end_date = None
+
+        if prior:
+            end_date = current_date - timedelta(days=current_date.weekday() + 1)
+            start_date = end_date - timedelta(days=6)
+        elif month:
+            start_date = current_date.replace(day=1)
+            end_date = current_date
+        elif lastmonth:
+            last_month = current_date.replace(day=1) - timedelta(days=1)
+            start_date = last_month.replace(day=1)
+            end_date = last_month
+        elif quarter:
+            current_quarter = (current_date.month - 1) // 3 + 1
+            start_month = (current_quarter - 1) * 3 + 1
+            end_month = start_month + 2
+            start_date = current_date.replace(month=start_month, day=1)
+            end_date = current_date.replace(month=end_month, day=calendar.monthrange(current_date.year, end_month)[1])
+        elif priorquarter:
+            current_quarter = (current_date.month - 1) // 3 + 1
+            prior_quarter = current_quarter - 1
+            start_month = (prior_quarter - 1) * 3 + 1
+            end_month = start_month + 2
+            start_date = current_date.replace(month=start_month, day=1)
+            end_date = current_date.replace(month=end_month, day=calendar.monthrange(current_date.year, end_month)[1])
+        else:
+            start_date = current_date - timedelta(days=current_date.weekday())
+            end_date = start_date + timedelta(days=6)
+
+        query = """
+            SELECT COALESCE(SUM(amount), 0) AS total_sales
+            FROM ylift_api.orders
+            WHERE status = 'COMPLETED'
+                AND DATE(completedAt) BETWEEN %s AND %s
+        """
+        cursor.execute(query, (start_date, end_date))
+
+        total_sales = cursor.fetchone()[0]
+
+        cursor.close()
+        connection.close()
+
+        sales_data = {
+            "startDate": start_date.strftime("%Y-%m-%d"),
+            "endDate": end_date.strftime("%Y-%m-%d"),
+            "totalSales": total_sales
+        }
+
+        return sales_data
+
+    except mysql.connector.Error as error:
+        print(f"Error connecting to MySQL database: {error}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 
 def perform_backup_sync():
     global last_backup_time
