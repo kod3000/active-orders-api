@@ -366,7 +366,7 @@ def get_sales( prior: Optional[bool] = None, month: Optional[bool] = None, lastm
     # if api_key != API_KEY:
     #     raise HTTPException(status_code=400, detail="Invalid API key")
 
-    # Set default values for query parameters if not provided or empty
+    # Set default values
     prior = prior or False
     month = month or False
     lastmonth = lastmonth or False
@@ -417,7 +417,7 @@ def get_sales( prior: Optional[bool] = None, month: Optional[bool] = None, lastm
             start_date = current_date - timedelta(days=current_date.weekday())
             end_date = start_date + timedelta(days=6)
 
-            
+
         query = """
             SELECT COALESCE(SUM(amount), 0) AS total_sales
             FROM ylift_api.orders
