@@ -154,13 +154,13 @@ def get_activity_probability():
 
     current_date = datetime.now().date()
     current_day_of_week = current_date.strftime("%A")
-    current_hour = datetime.now().hour
 
     current_day_data = {
         "day": "Current",
         "actual_day": current_day_of_week,
         "actual_probability": 0,
-        "actual_busy_hours": {}
+        "expected_probability": 0,
+        "actual_busy_hours": {hour: 0 for hour in activity_data[current_day_of_week]["busy_hours"]}
     }
 
     try:
@@ -168,34 +168,28 @@ def get_activity_probability():
         cursor = connection.cursor()
 
         query = """
-            SELECT COUNT(*) AS activity_count
+            SELECT COUNT(*) AS order_count, HOUR(updatedAt) AS hour_of_day
             FROM ylift_api.carts
-            WHERE DAYNAME(updatedAt) = %s
+            WHERE DATE(updatedAt) = %s
+            GROUP BY HOUR(updatedAt)
         """
-        cursor.execute(query, (current_day_of_week,))
+        cursor.execute(query, (current_date,))
 
-        activity_count = cursor.fetchone()[0]
-
-        current_hour_label = f"{current_hour:02d}:00 - {current_hour+1:02d}:00"
-
-        query = """
-            SELECT COUNT(*) AS order_count
-            FROM ylift_api.carts
-            WHERE DAYNAME(updatedAt) = %s AND HOUR(updatedAt) = %s
-        """
-        cursor.execute(query, (current_day_of_week, current_hour))
-
-        order_count = cursor.fetchone()[0]
+        total_orders = 0
+        for row in cursor.fetchall():
+            order_count = row[0]
+            hour_of_day = row[1]
+            hour_label = f"{hour_of_day:02d}:00 - {hour_of_day+1:02d}:00"
+            current_day_data["actual_busy_hours"][hour_label] = order_count
+            total_orders += order_count
 
         cursor.close()
         connection.close()
 
+        current_day_data["actual_probability"] = round(total_orders / 24, 4)
+
         if current_day_of_week in activity_data:
-            current_day_data["actual_probability"] = round(activity_count / activity_data[current_day_of_week]["probability"], 4)
-            if current_hour_label in activity_data[current_day_of_week]["busy_hours"]:
-                current_day_data["actual_busy_hours"][current_hour_label] = round(order_count / activity_data[current_day_of_week]["busy_hours"][current_hour_label], 4)
-            else:
-                current_day_data["actual_busy_hours"][current_hour_label] = 0
+            current_day_data["expected_probability"] = activity_data[current_day_of_week]["probability"]
 
     except mysql.connector.Error as error:
         print(f"Error connecting to MySQL database: {error}")
