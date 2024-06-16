@@ -103,7 +103,7 @@ def health_check():
         print(f"Error connecting to MySQL database: {error}")
         return {"status": "Error", "database": "Not Connected"}
 
-@app.get("/active_carts")
+@app.get("/carts")
 @sleep_and_retry
 @limits(calls=2, period=60) 
 def get_active_carts(api_key: str = Depends(api_key_header)):
@@ -136,6 +136,89 @@ def get_active_carts(api_key: str = Depends(api_key_header)):
         connection.close()
 
         return active_carts
+
+    except mysql.connector.Error as error:
+        print(f"Error connecting to MySQL database: {error}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/accounts")
+@sleep_and_retry
+@limits(calls=2, period=60) 
+def get_active_accounts(api_key: str = Depends(api_key_header)):
+# def get_active_accounts(api_key: str = Depends(api_key_header)):
+    # if api_key != API_KEY:
+    #     raise HTTPException(status_code=400, detail="Invalid API key")
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor()
+
+        query = """
+            SELECT DISTINCT profileId
+            FROM ylift_api.carts
+            WHERE DATE(updatedAt) = CURDATE()
+            ORDER BY updatedAt DESC
+        """
+        cursor.execute(query)
+
+        profile_ids = [row[0] for row in cursor.fetchall()]
+
+        if len(profile_ids) < 5:
+            query = """
+                SELECT DISTINCT profileId
+                FROM ylift_api.carts
+                WHERE DATE(updatedAt) < CURDATE()
+                ORDER BY updatedAt DESC
+                LIMIT %s
+            """
+            limit = 5 - len(profile_ids)
+            cursor.execute(query, (limit,))
+            profile_ids.extend([row[0] for row in cursor.fetchall()])
+
+        active_accounts = []
+
+        for profile_id in profile_ids:
+            query = """
+                SELECT email, name
+                FROM ylift_api.profiles
+                WHERE id = %s
+            """
+            cursor.execute(query, (profile_id,))
+            result = cursor.fetchone()
+
+            if result:
+                email, name = result
+                recently_ordered = False
+
+                query = """
+                    SELECT COUNT(*)
+                    FROM ylift_api.orders
+                    WHERE profileId = %s
+                        AND DATE_FORMAT(createdAt, '%%Y-%%m-%%d %%H:%%i') = DATE_FORMAT((
+                            SELECT updatedAt
+                            FROM ylift_api.carts
+                            WHERE profileId = %s
+                            ORDER BY updatedAt DESC
+                            LIMIT 1
+                        ), '%%Y-%%m-%%d %%H:%%i')
+                """
+                cursor.execute(query, (profile_id, profile_id))
+                order_count = cursor.fetchone()[0]
+
+                if order_count > 0:
+                    recently_ordered = True
+
+                active_accounts.append({
+                    "profileId": profile_id,
+                    "email": email,
+                    "name": name,
+                    "recentlyOrdered": recently_ordered
+                })
+
+        cursor.close()
+        connection.close()
+
+        return json.dumps(active_accounts)
 
     except mysql.connector.Error as error:
         print(f"Error connecting to MySQL database: {error}")
