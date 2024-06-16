@@ -154,10 +154,11 @@ def get_active_accounts():
         cursor = connection.cursor()
 
         query = """
-            SELECT DISTINCT profileId
+            SELECT profileId, MAX(updatedAt) AS updatedAt
             FROM ylift_api.carts
             WHERE DATE(updatedAt) = CURDATE()
-            ORDER BY updatedAt DESC
+            GROUP BY profileId
+            ORDER BY MAX(updatedAt) DESC
         """
         cursor.execute(query)
 
@@ -165,14 +166,17 @@ def get_active_accounts():
 
         if len(profile_ids) < 5:
             query = """
-                SELECT DISTINCT profileId
+                SELECT profileId, MAX(updatedAt) AS updatedAt
                 FROM ylift_api.carts
                 WHERE DATE(updatedAt) < CURDATE()
-                ORDER BY updatedAt DESC
+                    AND profileId NOT IN (%s)
+                GROUP BY profileId
+                ORDER BY MAX(updatedAt) DESC
                 LIMIT %s
             """
+            placeholders = ','.join(['%s'] * len(profile_ids))
             limit = 5 - len(profile_ids)
-            cursor.execute(query, (limit,))
+            cursor.execute(query % (placeholders, limit), tuple(profile_ids))
             profile_ids.extend([row[0] for row in cursor.fetchall()])
 
         active_accounts = []
@@ -223,7 +227,6 @@ def get_active_accounts():
     except mysql.connector.Error as error:
         print(f"Error connecting to MySQL database: {error}")
         raise HTTPException(status_code=500, detail="Internal server error")
-
 
 @app.get("/probability")
 @sleep_and_retry
