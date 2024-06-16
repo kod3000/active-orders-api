@@ -232,10 +232,21 @@ def get_store_activity():
         cursor.close()
         connection.close()
 
+        elapsed_idle = "00:00:00"
+        active_idle = "00:00:00"
+        is_active = False
+
+        if active_orders > 0:
+            active_idle = str(datetime.now() - one_hour_ago)
+            is_active = True
+        else:
+            elapsed_idle = str(datetime.now() - last_active)
+
         store_activity_data = {
             "last_active": last_active.strftime("%Y-%m-%d %H:%M:%S"),
-            "elapsed_idle": str(datetime.now() - last_active),
-            "active_idle": "00:00:00" if active_orders > 0 else str(datetime.now() - one_hour_ago)
+            "elapsed_idle": elapsed_idle,
+            "active_idle": active_idle,
+            "is_active": is_active
         }
 
         return store_activity_data
