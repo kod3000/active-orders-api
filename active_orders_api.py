@@ -201,7 +201,7 @@ def get_activity_probability():
 
 @app.get("/activity")
 @sleep_and_retry
-@limits(calls=2, period=60)  # Rate limit: 2 requests per minute
+@limits(calls=10, period=30) 
 def get_store_activity():
 # def get_store_activity(api_key: str = Depends(api_key_header)):
     # if api_key != API_KEY:
