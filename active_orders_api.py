@@ -164,7 +164,7 @@ def get_active_accounts():
 
         profile_ids = [row[0] for row in cursor.fetchall()]
 
-        if len(profile_ids) < 5:
+        if len(profile_ids) < 8:
             query = """
                 SELECT profileId, MAX(updatedAt) AS updatedAt
                 FROM ylift_api.carts
@@ -175,7 +175,7 @@ def get_active_accounts():
                 LIMIT %s
             """
             placeholders = ','.join(['%s'] * len(profile_ids))
-            limit = 5 - len(profile_ids)
+            limit = 8 - len(profile_ids)
             cursor.execute(query % (placeholders, limit), tuple(profile_ids))
             profile_ids.extend([row[0] for row in cursor.fetchall()])
 
