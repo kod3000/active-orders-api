@@ -361,8 +361,8 @@ def backup_database():
 @app.get("/sales")
 @sleep_and_retry
 @limits(calls=2, period=60)  # Rate limit: 2 requests per minute
-def get_sales(prior: Optional[bool] = None, month: Optional[bool] = None, lastmonth: Optional[bool] = None, quarter: Optional[bool] = None, priorquarter: Optional[bool] = None):
-# def get_sales(api_key: str = Depends(api_key_header), prior: Optional[bool] = None, month: Optional[bool] = None, lastmonth: Optional[bool] = None, quarter: Optional[bool] = None, priorquarter: Optional[bool] = None):
+def get_sales( prior: Optional[bool] = None, month: Optional[bool] = None, lastmonth: Optional[bool] = None, quarter: Optional[bool] = None, priorquarter: Optional[bool] = None, year: Optional[bool] = None, prioryear: Optional[bool] = None):
+# def get_sales(api_key: str = Depends(api_key_header), prior: Optional[bool] = None, month: Optional[bool] = None, lastmonth: Optional[bool] = None, quarter: Optional[bool] = None, priorquarter: Optional[bool] = None, year: Optional[bool] = None, prioryear: Optional[bool] = None):
     # if api_key != API_KEY:
     #     raise HTTPException(status_code=400, detail="Invalid API key")
 
@@ -372,6 +372,8 @@ def get_sales(prior: Optional[bool] = None, month: Optional[bool] = None, lastmo
     lastmonth = lastmonth or False
     quarter = quarter or False
     priorquarter = priorquarter or False
+    year = year or False
+    prioryear = prioryear or False
 
     try:
         connection = get_db_connection()
@@ -404,10 +406,18 @@ def get_sales(prior: Optional[bool] = None, month: Optional[bool] = None, lastmo
             end_month = start_month + 2
             start_date = current_date.replace(year=prior_year, month=start_month, day=1)
             end_date = current_date.replace(year=prior_year, month=end_month, day=calendar.monthrange(prior_year, end_month)[1])
+        elif year:
+            start_date = current_date.replace(month=1, day=1)
+            end_date = current_date.replace(month=12, day=31)
+        elif prioryear:
+            prior_year = current_date.year - 1
+            start_date = current_date.replace(year=prior_year, month=1, day=1)
+            end_date = current_date.replace(year=prior_year, month=12, day=31)
         else:
             start_date = current_date - timedelta(days=current_date.weekday())
             end_date = start_date + timedelta(days=6)
 
+            
         query = """
             SELECT COALESCE(SUM(amount), 0) AS total_sales
             FROM ylift_api.orders
