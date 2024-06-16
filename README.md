@@ -39,18 +39,27 @@ Before running the app, make sure you have the following:
 ## Configuration
 
 1. Create a `config.py` file in the project directory. (or copy and rename sample_config.py)
+
+    ```
+    touch config.py
+    ```
+    or 
+    ```
+    cp sample_config.py config.py
+    ```
+
 2. Open the `config.py` file and add the following configuration:
 
-```python
-DB_CONFIG = {
-    "host": "your_host",
-    "user": "your_username",
-    "password": "your_password",
-    "database": "your_database"
-}
+    ```python
+    DB_CONFIG = {
+        "host": "your_host",
+        "user": "your_username",
+        "password": "your_password",
+        "database": "your_database"
+    }
 
-API_KEY = "your_api_key"
-```
+    API_KEY = "your_api_key"
+    ```
 
 ## Usage
 1. Start the FastAPI server:
@@ -60,10 +69,10 @@ API_KEY = "your_api_key"
   - Make a GET request to http://localhost:8000/active_carts.
   - Include the X-API-Key header with your API key.
 
-ie : 
-```
-  curl -X GET -H "X-API-Key: your_api_key" http://localhost:8000/active_carts
-```
+    ie : 
+    ```
+      curl -X GET -H "X-API-Key: your_api_key" http://localhost:8000/active_carts
+    ```
 3. The API will return a JSON response containing the active carts modified on the current day, including the profileId, createdAt, and updatedAt fields.
 
 ## Contributing
