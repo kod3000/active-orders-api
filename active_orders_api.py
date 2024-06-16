@@ -416,7 +416,7 @@ def get_sales(prior: bool = False, month: bool = False, lastmonth: bool = False,
         sales_data = {
             "startDate": start_date.strftime("%Y-%m-%d"),
             "endDate": end_date.strftime("%Y-%m-%d"),
-            "totalSales": total_sales
+            "totalSales": "${:,.2f}".format(total_sales_dollars)
         }
 
         return sales_data
