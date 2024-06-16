@@ -360,12 +360,13 @@ def backup_database():
 
 @app.get("/sales")
 @sleep_and_retry
-@limits(calls=2, period=60)
-def get_sales(prior: bool = False, month: bool = False, lastmonth: bool = False, quarter: bool = False, priorquarter: bool = False):
-# def get_sales(api_key: str = Depends(api_key_header), prior: bool = False, month: bool = False, lastmonth: bool = False, quarter: bool = False, priorquarter: bool = False):
+@limits(calls=2, period=60)  # Rate limit: 2 requests per minute
+def get_sales(prior: Optional[bool] = None, month: Optional[bool] = None, lastmonth: Optional[bool] = None, quarter: Optional[bool] = None, priorquarter: Optional[bool] = None):
+# def get_sales(api_key: str = Depends(api_key_header), prior: Optional[bool] = None, month: Optional[bool] = None, lastmonth: Optional[bool] = None, quarter: Optional[bool] = None, priorquarter: Optional[bool] = None):
     # if api_key != API_KEY:
     #     raise HTTPException(status_code=400, detail="Invalid API key")
 
+    # Set default values for query parameters if not provided or empty
     prior = prior or False
     month = month or False
     lastmonth = lastmonth or False
@@ -398,11 +399,11 @@ def get_sales(prior: bool = False, month: bool = False, lastmonth: bool = False,
             end_date = current_date.replace(month=end_month, day=calendar.monthrange(current_date.year, end_month)[1])
         elif priorquarter:
             current_quarter = (current_date.month - 1) // 3 + 1
-            prior_quarter = current_quarter - 1
-            start_month = (prior_quarter - 1) * 3 + 1
+            prior_year = current_date.year - 1
+            start_month = (current_quarter - 1) * 3 + 1
             end_month = start_month + 2
-            start_date = current_date.replace(month=start_month, day=1)
-            end_date = current_date.replace(month=end_month, day=calendar.monthrange(current_date.year, end_month)[1])
+            start_date = current_date.replace(year=prior_year, month=start_month, day=1)
+            end_date = current_date.replace(year=prior_year, month=end_month, day=calendar.monthrange(prior_year, end_month)[1])
         else:
             start_date = current_date - timedelta(days=current_date.weekday())
             end_date = start_date + timedelta(days=6)
@@ -417,7 +418,7 @@ def get_sales(prior: bool = False, month: bool = False, lastmonth: bool = False,
 
         total_sales_pennies = cursor.fetchone()[0]
         total_sales_dollars = total_sales_pennies / 100
-        
+
         cursor.close()
         connection.close()
 
