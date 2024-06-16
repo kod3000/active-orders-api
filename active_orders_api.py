@@ -19,6 +19,7 @@ def get_db_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 @app.get("/health")
+@limits(calls=10, period=60) 
 def health_check():
     try:
         connection = get_db_connection()
