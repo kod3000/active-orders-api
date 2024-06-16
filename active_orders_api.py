@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from config import DB_CONFIG, API_KEY, BACK_UP_LOC
 import os
 import asyncio
+import json
 
 
 last_backup_time = None
@@ -70,6 +71,61 @@ def get_active_carts(api_key: str = Depends(api_key_header)):
         connection.close()
 
         return active_carts
+
+    except mysql.connector.Error as error:
+        print(f"Error connecting to MySQL database: {error}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/probability")
+@sleep_and_retry
+@limits(calls=2, period=60) 
+def get_activity_probability():
+# def get_activity_probability(api_key: str = Depends(api_key_header)):
+    # if api_key != API_KEY:
+    #     raise HTTPException(status_code=400, detail="Invalid API key")
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor()
+
+        query = """
+            SELECT DAYNAME(updatedAt) AS day_of_week, HOUR(updatedAt) AS hour_of_day
+            FROM ylift_api.carts
+        """
+        cursor.execute(query)
+
+        activity_data = {}
+        for row in cursor.fetchall():
+            day_of_week = row[0]
+            hour_of_day = row[1]
+
+            if day_of_week not in activity_data:
+                activity_data[day_of_week] = {
+                    "probability": 0,
+                    "busy_hours": {}
+                }
+
+            activity_data[day_of_week]["probability"] += 1
+
+            if hour_of_day not in activity_data[day_of_week]["busy_hours"]:
+                activity_data[day_of_week]["busy_hours"][hour_of_day] = 0
+
+            activity_data[day_of_week]["busy_hours"][hour_of_day] += 1
+
+        cursor.close()
+        connection.close()
+
+        total_activity = sum(data["probability"] for data in activity_data.values())
+
+        for day_of_week in activity_data:
+            activity_data[day_of_week]["probability"] /= total_activity
+
+            total_hours = sum(activity_data[day_of_week]["busy_hours"].values())
+            for hour_of_day in activity_data[day_of_week]["busy_hours"]:
+                activity_data[day_of_week]["busy_hours"][hour_of_day] /= total_hours
+
+        return json.dumps(activity_data)
 
     except mysql.connector.Error as error:
         print(f"Error connecting to MySQL database: {error}")
