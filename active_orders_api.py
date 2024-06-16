@@ -161,9 +161,9 @@ def get_activity_probability():
             query = """
                 SELECT COUNT(*) AS activity_count
                 FROM ylift_api.carts
-                WHERE DATE(updatedAt) = %s
+                WHERE DAYNAME(updatedAt) = %s
             """
-            cursor.execute(query, (current_date,))
+            cursor.execute(query, (current_day_of_week,))
 
             activity_count = cursor.fetchone()[0]
 
@@ -172,9 +172,9 @@ def get_activity_probability():
             query = """
                 SELECT COUNT(*) AS order_count
                 FROM ylift_api.carts
-                WHERE DATE(updatedAt) = %s AND HOUR(updatedAt) = %s
+                WHERE DAYNAME(updatedAt) = %s AND HOUR(updatedAt) = %s
             """
-            cursor.execute(query, (current_date, current_hour))
+            cursor.execute(query, (current_day_of_week, current_hour))
 
             order_count = cursor.fetchone()[0]
 
