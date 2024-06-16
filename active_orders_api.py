@@ -408,8 +408,9 @@ def get_sales(prior: bool = False, month: bool = False, lastmonth: bool = False,
         """
         cursor.execute(query, (start_date, end_date))
 
-        total_sales = cursor.fetchone()[0]
-
+        total_sales_pennies = cursor.fetchone()[0]
+        total_sales_dollars = total_sales_pennies / 100
+        
         cursor.close()
         connection.close()
 
