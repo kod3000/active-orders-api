@@ -31,6 +31,7 @@ last_calculation_date = None
 def calculate_activity_probability():
     global activity_data, last_calculation_date
 
+
     current_date = datetime.now().date()
 
     if last_calculation_date == current_date:
@@ -82,7 +83,6 @@ def calculate_activity_probability():
     except mysql.connector.Error as error:
         print(f"Error connecting to MySQL database: {error}")
         raise HTTPException(status_code=500, detail="Internal server error")
-
 
 @app.get("/health")
 @limits(calls=10, period=60) 
@@ -144,7 +144,7 @@ def get_activity_probability():
     # if api_key != API_KEY:
     #     raise HTTPException(status_code=400, detail="Invalid API key")
 
-    calculate_activity_probability()
+     calculate_activity_probability()
 
     current_date = datetime.now().date()
     current_day_of_week = current_date.strftime("%A")
@@ -182,7 +182,11 @@ def get_activity_probability():
             connection.close()
 
             activity_data[current_day_of_week]["actual_probability"] = round(activity_count / activity_data[current_day_of_week]["probability"], 4)
-            activity_data[current_day_of_week]["actual_busy_hours"][current_hour_label] = round(order_count / activity_data[current_day_of_week]["busy_hours"].get(current_hour_label, 1), 4)
+            
+            if current_hour_label in activity_data[current_day_of_week]["busy_hours"]:
+                activity_data[current_day_of_week]["actual_busy_hours"][current_hour_label] = round(order_count / activity_data[current_day_of_week]["busy_hours"][current_hour_label], 4)
+            else:
+                activity_data[current_day_of_week]["actual_busy_hours"][current_hour_label] = 0
 
         except mysql.connector.Error as error:
             print(f"Error connecting to MySQL database: {error}")
