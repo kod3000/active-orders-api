@@ -144,7 +144,7 @@ def get_activity_probability():
     # if api_key != API_KEY:
     #     raise HTTPException(status_code=400, detail="Invalid API key")
 
-     calculate_activity_probability()
+    calculate_activity_probability()
 
     current_date = datetime.now().date()
     current_day_of_week = current_date.strftime("%A")
