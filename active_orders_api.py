@@ -156,7 +156,6 @@ def get_activity_probability():
     current_day_of_week = current_date.strftime("%A")
 
     current_day_data = {
-        "day": "Current",
         "actual_day": current_day_of_week,
         "actual_probability": 0,
         "expected_probability": 0,
@@ -199,6 +198,51 @@ def get_activity_probability():
 
     return activity_data
 
+
+@app.get("/activity")
+@sleep_and_retry
+@limits(calls=2, period=60)  # Rate limit: 2 requests per minute
+def get_store_activity():
+# def get_store_activity(api_key: str = Depends(api_key_header)):
+    # if api_key != API_KEY:
+    #     raise HTTPException(status_code=400, detail="Invalid API key")
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor()
+
+        query = """
+            SELECT MAX(updatedAt) AS last_active
+            FROM ylift_api.carts
+        """
+        cursor.execute(query)
+
+        last_active = cursor.fetchone()[0]
+
+        query = """
+            SELECT COUNT(*) AS active_orders
+            FROM ylift_api.carts
+            WHERE updatedAt >= %s
+        """
+        one_hour_ago = datetime.now() - timedelta(hours=1)
+        cursor.execute(query, (one_hour_ago,))
+
+        active_orders = cursor.fetchone()[0]
+
+        cursor.close()
+        connection.close()
+
+        store_activity_data = {
+            "last_active": last_active.strftime("%Y-%m-%d %H:%M:%S"),
+            "elapsed_idle": str(datetime.now() - last_active),
+            "active_idle": "00:00:00" if active_orders > 0 else str(datetime.now() - one_hour_ago)
+        }
+
+        return store_activity_data
+
+    except mysql.connector.Error as error:
+        print(f"Error connecting to MySQL database: {error}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/backup")
