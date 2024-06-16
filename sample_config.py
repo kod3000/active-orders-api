@@ -7,3 +7,5 @@ DB_CONFIG = {
 }
 
 API_KEY = "your_api_key"
+
+BACK_UP_LOC = '/location/backup/'
