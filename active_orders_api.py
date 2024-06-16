@@ -32,6 +32,7 @@ def calculate_activity_probability():
     global activity_data, last_calculation_date
 
 
+
     current_date = datetime.now().date()
 
     if last_calculation_date == current_date:
@@ -78,11 +79,16 @@ def calculate_activity_probability():
             for hour_label in activity_data[day_of_week]["busy_hours"]:
                 activity_data[day_of_week]["busy_hours"][hour_label] = round(activity_data[day_of_week]["busy_hours"][hour_label] / max_hours, 4)
 
+            # Sort the 'busy_hours' dictionary based on hour labels
+            sorted_busy_hours = dict(sorted(activity_data[day_of_week]["busy_hours"].items(), key=lambda x: x[0]))
+            activity_data[day_of_week]["busy_hours"] = sorted_busy_hours
+
         last_calculation_date = current_date
 
     except mysql.connector.Error as error:
         print(f"Error connecting to MySQL database: {error}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @app.get("/health")
 @limits(calls=10, period=60) 
@@ -150,49 +156,55 @@ def get_activity_probability():
     current_day_of_week = current_date.strftime("%A")
     current_hour = datetime.now().hour
 
-    if current_day_of_week in activity_data:
-        activity_data[current_day_of_week]["actual_probability"] = 0
-        activity_data[current_day_of_week]["actual_busy_hours"] = {}
+    current_day_data = {
+        "day": "Current",
+        "actual_day": current_day_of_week,
+        "actual_probability": 0,
+        "actual_busy_hours": {}
+    }
 
-        try:
-            connection = get_db_connection()
-            cursor = connection.cursor()
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor()
 
-            query = """
-                SELECT COUNT(*) AS activity_count
-                FROM ylift_api.carts
-                WHERE DAYNAME(updatedAt) = %s
-            """
-            cursor.execute(query, (current_day_of_week,))
+        query = """
+            SELECT COUNT(*) AS activity_count
+            FROM ylift_api.carts
+            WHERE DAYNAME(updatedAt) = %s
+        """
+        cursor.execute(query, (current_day_of_week,))
 
-            activity_count = cursor.fetchone()[0]
+        activity_count = cursor.fetchone()[0]
 
-            current_hour_label = f"{current_hour:02d}:00 - {current_hour+1:02d}:00"
+        current_hour_label = f"{current_hour:02d}:00 - {current_hour+1:02d}:00"
 
-            query = """
-                SELECT COUNT(*) AS order_count
-                FROM ylift_api.carts
-                WHERE DAYNAME(updatedAt) = %s AND HOUR(updatedAt) = %s
-            """
-            cursor.execute(query, (current_day_of_week, current_hour))
+        query = """
+            SELECT COUNT(*) AS order_count
+            FROM ylift_api.carts
+            WHERE DAYNAME(updatedAt) = %s AND HOUR(updatedAt) = %s
+        """
+        cursor.execute(query, (current_day_of_week, current_hour))
 
-            order_count = cursor.fetchone()[0]
+        order_count = cursor.fetchone()[0]
 
-            cursor.close()
-            connection.close()
+        cursor.close()
+        connection.close()
 
-            activity_data[current_day_of_week]["actual_probability"] = round(activity_count / activity_data[current_day_of_week]["probability"], 4)
-            
+        if current_day_of_week in activity_data:
+            current_day_data["actual_probability"] = round(activity_count / activity_data[current_day_of_week]["probability"], 4)
             if current_hour_label in activity_data[current_day_of_week]["busy_hours"]:
-                activity_data[current_day_of_week]["actual_busy_hours"][current_hour_label] = round(order_count / activity_data[current_day_of_week]["busy_hours"][current_hour_label], 4)
+                current_day_data["actual_busy_hours"][current_hour_label] = round(order_count / activity_data[current_day_of_week]["busy_hours"][current_hour_label], 4)
             else:
-                activity_data[current_day_of_week]["actual_busy_hours"][current_hour_label] = 0
+                current_day_data["actual_busy_hours"][current_hour_label] = 0
 
-        except mysql.connector.Error as error:
-            print(f"Error connecting to MySQL database: {error}")
-            raise HTTPException(status_code=500, detail="Internal server error")
+    except mysql.connector.Error as error:
+        print(f"Error connecting to MySQL database: {error}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+    activity_data["Current"] = current_day_data
 
     return activity_data
+
 
 
 @app.get("/backup")
