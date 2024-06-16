@@ -222,7 +222,7 @@ def get_active_accounts():
         cursor.close()
         connection.close()
 
-        return json.dumps(active_accounts)
+        return active_accounts
 
     except mysql.connector.Error as error:
         print(f"Error connecting to MySQL database: {error}")
