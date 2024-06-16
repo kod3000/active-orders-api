@@ -25,6 +25,63 @@ def get_db_connection():
     return mysql.connector.connect(**DB_CONFIG)
 
 
+activity_data = {}
+last_calculation_date = None
+
+def calculate_activity_probability():
+    global activity_data, last_calculation_date
+
+    current_date = datetime.now().date()
+
+    if last_calculation_date == current_date:
+        return
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor()
+
+        query = """
+            SELECT DAYNAME(updatedAt) AS day_of_week, HOUR(updatedAt) AS hour_of_day
+            FROM ylift_api.carts
+        """
+        cursor.execute(query)
+
+        activity_data = {}
+        for row in cursor.fetchall():
+            day_of_week = row[0]
+            hour_of_day = row[1]
+
+            if day_of_week not in activity_data:
+                activity_data[day_of_week] = {
+                    "probability": 0,
+                    "busy_hours": {}
+                }
+
+            activity_data[day_of_week]["probability"] += 1
+
+            if hour_of_day not in activity_data[day_of_week]["busy_hours"]:
+                activity_data[day_of_week]["busy_hours"][hour_of_day] = 0
+
+            activity_data[day_of_week]["busy_hours"][hour_of_day] += 1
+
+        cursor.close()
+        connection.close()
+
+        max_activity = max(data["probability"] for data in activity_data.values())
+
+        for day_of_week in activity_data:
+            activity_data[day_of_week]["probability"] /= max_activity
+
+            max_hours = max(activity_data[day_of_week]["busy_hours"].values())
+            for hour_of_day in activity_data[day_of_week]["busy_hours"]:
+                activity_data[day_of_week]["busy_hours"][hour_of_day] /= max_hours
+
+        last_calculation_date = current_date
+
+    except mysql.connector.Error as error:
+        print(f"Error connecting to MySQL database: {error}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 @app.get("/health")
 @limits(calls=10, period=60) 
 def health_check():
@@ -85,51 +142,49 @@ def get_activity_probability():
     # if api_key != API_KEY:
     #     raise HTTPException(status_code=400, detail="Invalid API key")
 
-    try:
-        connection = get_db_connection()
-        cursor = connection.cursor()
+    calculate_activity_probability()
 
-        query = """
-            SELECT DAYNAME(updatedAt) AS day_of_week, HOUR(updatedAt) AS hour_of_day
-            FROM ylift_api.carts
-        """
-        cursor.execute(query)
+    current_date = datetime.now().date()
+    current_day_of_week = current_date.strftime("%A")
+    current_hour = datetime.now().hour
 
-        activity_data = {}
-        for row in cursor.fetchall():
-            day_of_week = row[0]
-            hour_of_day = row[1]
+    if current_day_of_week in activity_data:
+        activity_data[current_day_of_week]["actual_probability"] = 0
+        activity_data[current_day_of_week]["actual_busy_hours"] = {}
 
-            if day_of_week not in activity_data:
-                activity_data[day_of_week] = {
-                    "probability": 0,
-                    "busy_hours": {}
-                }
+        try:
+            connection = get_db_connection()
+            cursor = connection.cursor()
 
-            activity_data[day_of_week]["probability"] += 1
+            query = """
+                SELECT COUNT(*) AS activity_count
+                FROM ylift_api.carts
+                WHERE DATE(updatedAt) = %s
+            """
+            cursor.execute(query, (current_date,))
 
-            if hour_of_day not in activity_data[day_of_week]["busy_hours"]:
-                activity_data[day_of_week]["busy_hours"][hour_of_day] = 0
+            activity_count = cursor.fetchone()[0]
 
-            activity_data[day_of_week]["busy_hours"][hour_of_day] += 1
+            query = """
+                SELECT COUNT(*) AS order_count
+                FROM ylift_api.carts
+                WHERE DATE(updatedAt) = %s AND HOUR(updatedAt) = %s
+            """
+            cursor.execute(query, (current_date, current_hour))
 
-        cursor.close()
-        connection.close()
+            order_count = cursor.fetchone()[0]
 
-        total_activity = sum(data["probability"] for data in activity_data.values())
+            cursor.close()
+            connection.close()
 
-        for day_of_week in activity_data:
-            activity_data[day_of_week]["probability"] /= total_activity
+            activity_data[current_day_of_week]["actual_probability"] = activity_count / activity_data[current_day_of_week]["probability"]
+            activity_data[current_day_of_week]["actual_busy_hours"][current_hour] = order_count / activity_data[current_day_of_week]["busy_hours"].get(current_hour, 1)
 
-            total_hours = sum(activity_data[day_of_week]["busy_hours"].values())
-            for hour_of_day in activity_data[day_of_week]["busy_hours"]:
-                activity_data[day_of_week]["busy_hours"][hour_of_day] /= total_hours
+        except mysql.connector.Error as error:
+            print(f"Error connecting to MySQL database: {error}")
+            raise HTTPException(status_code=500, detail="Internal server error")
 
-        return json.dumps(activity_data)
-
-    except mysql.connector.Error as error:
-        print(f"Error connecting to MySQL database: {error}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    return activity_data
 
 
 @app.get("/backup")
