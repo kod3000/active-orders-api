@@ -10,7 +10,7 @@ import asyncio
 import json
 from typing import Optional
 import calendar
-import ptz
+import pytz
 
 last_backup_time = None
 
