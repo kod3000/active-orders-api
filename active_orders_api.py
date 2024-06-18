@@ -10,6 +10,7 @@ import asyncio
 import json
 from typing import Optional
 import calendar
+import ptz
 
 last_backup_time = None
 
@@ -288,11 +289,11 @@ def get_activity_probability():
 
 @app.get("/activity")
 @sleep_and_retry
-@limits(calls=10, period=30) 
+@limits(calls=10, period=30)
 def get_store_activity():
-# def get_store_activity(api_key: str = Depends(api_key_header)):
-    # if api_key != API_KEY:
-    #     raise HTTPException(status_code=400, detail="Invalid API key")
+    # def get_store_activity(api_key: str = Depends(api_key_header)):
+    #     if api_key != API_KEY:
+    #         raise HTTPException(status_code=400, detail="Invalid API key")
 
     try:
         connection = get_db_connection()
@@ -329,8 +330,12 @@ def get_store_activity():
         else:
             elapsed_idle = str(datetime.now() - last_active)
 
+        # Convert last_active to the correct local time
+        local_tz = timezone('America/New_York')  # Replace with the desired timezone
+        local_last_active = last_active.astimezone(local_tz)
+
         store_activity_data = {
-            "last_active": last_active.strftime("%Y-%m-%d %H:%M:%S"),
+            "last_active": local_last_active.strftime("%Y-%m-%d %H:%M:%S"),
             "elapsed_idle": elapsed_idle,
             "active_idle": active_idle,
             "is_active": is_active
