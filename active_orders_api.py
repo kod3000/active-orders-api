@@ -215,7 +215,7 @@ def get_active_accounts():
                     recently_ordered = True
 
                 active_accounts.append({
-                    "profileId": profile_id,
+                    "id": profile_id,
                     "email": email,
                     "name": name,
                     "recentlyOrdered": recently_ordered
