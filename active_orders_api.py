@@ -10,7 +10,7 @@ import asyncio
 import json
 from typing import Optional
 import calendar
-from pytz import timezone
+from pytz import timezone, utc 
 
 last_backup_time = None
 
@@ -305,15 +305,15 @@ def get_store_activity():
         """
         cursor.execute(query)
 
-        last_active = cursor.fetchone()[0]
+        last_active_utc = cursor.fetchone()[0]
 
         query = """
             SELECT COUNT(*) AS active_orders
             FROM ylift_api.carts
             WHERE updatedAt >= %s
         """
-        one_hour_ago = datetime.now() - timedelta(hours=1)
-        cursor.execute(query, (one_hour_ago,))
+        one_hour_ago_utc = datetime.utcnow() - timedelta(hours=1)
+        cursor.execute(query, (one_hour_ago_utc,))
 
         active_orders = cursor.fetchone()[0]
 
@@ -325,17 +325,17 @@ def get_store_activity():
         is_active = False
 
         if active_orders > 0:
-            active_idle = str(datetime.now() - one_hour_ago)
+            active_idle = str(datetime.utcnow() - one_hour_ago_utc)
             is_active = True
         else:
-            elapsed_idle = str(datetime.now() - last_active)
+            elapsed_idle = str(datetime.utcnow() - last_active_utc)
 
-        # Convert last_active to the correct local time
-        local_tz = timezone('America/New_York')  # Replace with the desired timezone
-        local_last_active = last_active.astimezone(local_tz)
+        # Convert last_active from UTC to New York timezone
+        ny_tz = timezone('America/New_York')
+        last_active_ny = utc.localize(last_active_utc).astimezone(ny_tz)
 
         store_activity_data = {
-            "last_active": local_last_active.strftime("%Y-%m-%d %H:%M:%S"),
+            "last_active": last_active_ny.strftime("%Y-%m-%d %H:%M:%S"),
             "elapsed_idle": elapsed_idle,
             "active_idle": active_idle,
             "is_active": is_active
