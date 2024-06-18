@@ -233,10 +233,13 @@ def get_active_accounts():
 @app.get("/probability")
 @sleep_and_retry
 @limits(calls=2, period=60) 
-def get_activity_probability():
+def get_activity_probability( current: Optional[bool] = None, ):
 # def get_activity_probability(api_key: str = Depends(api_key_header)):
     # if api_key != API_KEY:
     #     raise HTTPException(status_code=400, detail="Invalid API key")
+
+
+    current = current or False
 
     calculate_activity_probability()
 
@@ -282,7 +285,8 @@ def get_activity_probability():
         print(f"Error connecting to MySQL database: {error}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-    activity_data["Current"] = current_day_data
+    if current :
+        activity_data["Current"] = current_day_data
 
     return activity_data
 
