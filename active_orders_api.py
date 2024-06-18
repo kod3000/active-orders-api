@@ -286,7 +286,7 @@ def get_activity_probability( current: Optional[bool] = None, ):
         raise HTTPException(status_code=500, detail="Internal server error")
 
     if current :
-        activity_data["Current"] = current_day_data
+        return current_day_data
 
     return activity_data
 
