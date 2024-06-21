@@ -299,39 +299,43 @@ def get_store_activity():
     #     if api_key != API_KEY:
     #         raise HTTPException(status_code=400, detail="Invalid API key")
 
-    try:
+   try:
         connection = get_db_connection()
         cursor = connection.cursor()
 
-        current_date = datetime.now().date()
-        one_hour_ago = datetime.now() - timedelta(hours=1)
+        current_date = datetime.utcnow().date()
+        one_hour_ago_utc = datetime.utcnow() - timedelta(hours=1)
 
-        # Query to get the latest updatedAt considering both carts and cartItems
-        query = """
-            SELECT 
-                GREATEST(
-                    MAX(c.updatedAt),
-                    COALESCE(MAX(ci.updatedAt), '1970-01-01')
-                ) AS last_active
-            FROM 
-                ylift_api.carts c
-            LEFT JOIN 
-                ylift_api.cartItems ci ON c.id = ci.cartId AND DATE(ci.updatedAt) = %s
+        # Query to get the latest updatedAt from carts
+        query_carts = """
+            SELECT MAX(updatedAt) AS last_active_cart
+            FROM ylift_api.carts
         """
-        cursor.execute(query, (current_date,))
-        last_active = cursor.fetchone()[0]
+        cursor.execute(query_carts)
+        last_active_cart_utc = cursor.fetchone()[0]
 
-        # Query to count active carts in the last hour
-        query_active_carts = """
-            SELECT COUNT(DISTINCT c.id) AS active_carts
+        # Query to get the latest updatedAt from cartItems for the current date
+        query_cart_items = """
+            SELECT MAX(ci.updatedAt) AS last_active_item
+            FROM ylift_api.cartItems ci
+            JOIN ylift_api.carts c ON ci.cartId = c.id
+            WHERE DATE(ci.updatedAt) = %s
+        """
+        cursor.execute(query_cart_items, (current_date,))
+        last_active_item_utc = cursor.fetchone()[0]
+
+        # Determine the most recent activity
+        last_active_utc = max(last_active_cart_utc, last_active_item_utc) if last_active_item_utc else last_active_cart_utc
+
+        # Query to count active orders in the last hour
+        query_active_orders = """
+            SELECT COUNT(DISTINCT c.id) AS active_orders
             FROM ylift_api.carts c
             LEFT JOIN ylift_api.cartItems ci ON c.id = ci.cartId
-            WHERE 
-                c.updatedAt >= %s
-                OR (ci.updatedAt >= %s AND DATE(ci.updatedAt) = %s)
+            WHERE GREATEST(c.updatedAt, COALESCE(ci.updatedAt, '1970-01-01')) >= %s
         """
-        cursor.execute(query_active_carts, (one_hour_ago, one_hour_ago, current_date))
-        active_carts = cursor.fetchone()[0]
+        cursor.execute(query_active_orders, (one_hour_ago_utc,))
+        active_orders = cursor.fetchone()[0]
 
         cursor.close()
         connection.close()
@@ -340,14 +344,23 @@ def get_store_activity():
         active_idle = "00:00:00"
         is_active = False
 
-        if active_carts > 0 and last_active >= one_hour_ago:
-            active_idle = str(datetime.now() - last_active)
+        if active_orders > 0:
+            active_idle = str(datetime.utcnow() - one_hour_ago_utc)
             is_active = True
         else:
-            elapsed_idle = str(datetime.now() - last_active)
+            elapsed_idle = str(datetime.utcnow() - last_active_utc)
+            # Check if the last activity was from cartItems and if it's been more than an hour
+            if last_active_utc == last_active_item_utc and (datetime.utcnow() - last_active_utc) > timedelta(hours=1):
+                is_active = False
+            else:
+                is_active = (datetime.utcnow() - last_active_utc) <= timedelta(hours=1)
+
+        # Convert last_active from UTC to New York timezone
+        ny_tz = timezone('America/New_York')
+        last_active_ny = utc.localize(last_active_utc).astimezone(ny_tz)
 
         store_activity_data = {
-            "last_active": last_active.strftime("%Y-%m-%d %H:%M:%S"),
+            "last_active": last_active_ny.strftime("%Y-%m-%d %H:%M:%S"),
             "elapsed_idle": elapsed_idle,
             "active_idle": active_idle,
             "is_active": is_active
@@ -358,8 +371,6 @@ def get_store_activity():
     except mysql.connector.Error as error:
         print(f"Error connecting to MySQL database: {error}")
         raise HTTPException(status_code=500, detail="Internal server error")
-
-
 @app.get("/backup")
 @sleep_and_retry
 @limits(calls=2, period=3600)
