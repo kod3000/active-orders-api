@@ -214,8 +214,8 @@ def get_active_accounts():
                 """
                 cursor.execute(query_orders, (profile_id, current_date))
                 order_result = cursor.fetchone()
-                num_purchases = order_result[0]
-                open_orders = order_result[1] > 0
+                num_purchases = order_result[0] if order_result else 0
+                open_orders = (order_result[1] or 0) > 0 if order_result else False
 
                 # Check for cart items
                 query_cart_items = """
