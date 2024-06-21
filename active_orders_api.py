@@ -156,8 +156,9 @@ def get_active_accounts():
         cursor = connection.cursor()
 
         current_date = datetime.now().date()
+        yesterday = current_date - timedelta(days=1)
 
-        # Query to get cartIds from cartItems updated today
+        # Get cartIds from cartItems for the current date
         query_cart_items = """
             SELECT DISTINCT cartId
             FROM ylift_api.cartItems
@@ -166,38 +167,29 @@ def get_active_accounts():
         cursor.execute(query_cart_items, (current_date,))
         cart_ids_from_items = [row[0] for row in cursor.fetchall()]
 
-        # Query to get profileIds from carts updated today or associated with today's cartItems
+        # Get profileIds from active carts for the current date
+        query_active_carts = """
+            SELECT DISTINCT profileId
+            FROM ylift_api.carts
+            WHERE DATE(updatedAt) = %s
+        """
+        cursor.execute(query_active_carts, (current_date,))
+        profile_ids_from_carts = [row[0] for row in cursor.fetchall()]
+
+        # Get profileIds from carts associated with active cartItems
         if cart_ids_from_items:
-            query_carts = """
+            query_profiles_from_items = """
                 SELECT DISTINCT profileId
                 FROM ylift_api.carts
-                WHERE DATE(updatedAt) = %s
-                OR id IN ({})
+                WHERE id IN ({})
             """.format(','.join(['%s'] * len(cart_ids_from_items)))
-            cursor.execute(query_carts, (current_date, *cart_ids_from_items))
+            cursor.execute(query_profiles_from_items, cart_ids_from_items)
+            profile_ids_from_items = [row[0] for row in cursor.fetchall()]
         else:
-            query_carts = """
-                SELECT DISTINCT profileId
-                FROM ylift_api.carts
-                WHERE DATE(updatedAt) = %s
-            """
-            cursor.execute(query_carts, (current_date,))
+            profile_ids_from_items = []
 
-        profile_ids = [row[0] for row in cursor.fetchall()]
-
-        # If we have less than 8 profiles, get additional recent profiles
-        if len(profile_ids) < 8:
-            query_additional = """
-                SELECT DISTINCT profileId
-                FROM ylift_api.carts
-                WHERE profileId NOT IN ({})
-                ORDER BY updatedAt DESC
-                LIMIT %s
-            """.format(','.join(['%s'] * len(profile_ids)))
-            limit = 8 - len(profile_ids)
-            cursor.execute(query_additional, (*profile_ids, limit))
-            additional_profile_ids = [row[0] for row in cursor.fetchall()]
-            profile_ids.extend(additional_profile_ids)
+        # Merge and deduplicate profile IDs
+        profile_ids = list(set(profile_ids_from_carts + profile_ids_from_items))
 
         active_accounts = []
 
@@ -212,31 +204,60 @@ def get_active_accounts():
 
             if result:
                 email, name = result
-                recently_ordered = False
 
-                query_recent_order = """
-                    SELECT COUNT(*)
+                # Check for purchases and open orders
+                query_orders = """
+                    SELECT COUNT(*) as num_purchases, 
+                           SUM(CASE WHEN status != 'COMPLETED' THEN 1 ELSE 0 END) as open_orders
                     FROM ylift_api.orders
-                    WHERE profileId = %s
-                        AND DATE_FORMAT(createdAt, '%Y-%m-%d %H:%i') = DATE_FORMAT((
-                            SELECT updatedAt
-                            FROM ylift_api.carts
-                            WHERE profileId = %s
-                            ORDER BY updatedAt DESC
-                            LIMIT 1
-                        ), '%Y-%m-%d %H:%i')
+                    WHERE profileId = %s AND DATE(createdAt) = %s
                 """
-                cursor.execute(query_recent_order, (profile_id, profile_id))
-                order_count = cursor.fetchone()[0]
+                cursor.execute(query_orders, (profile_id, current_date))
+                order_result = cursor.fetchone()
+                num_purchases = order_result[0]
+                open_orders = order_result[1] > 0
 
-                if order_count > 0:
-                    recently_ordered = True
+                # Check for cart items
+                query_cart_items = """
+                    SELECT COUNT(*) 
+                    FROM ylift_api.cartItems ci
+                    JOIN ylift_api.carts c ON ci.cartId = c.id
+                    WHERE c.profileId = %s AND DATE(ci.updatedAt) = %s
+                """
+                cursor.execute(query_cart_items, (profile_id, current_date))
+                has_cart_items = cursor.fetchone()[0] > 0
 
                 active_accounts.append({
                     "id": profile_id,
                     "email": email,
                     "name": name,
-                    "recentlyOrdered": recently_ordered
+                    "numPurchases": num_purchases,
+                    "openOrder": open_orders,
+                    "hasCartItems": has_cart_items
+                })
+
+        # If we have less than 5 accounts with purchases today, add accounts with purchases from yesterday
+        if sum(account['numPurchases'] > 0 for account in active_accounts) < 5:
+            query_yesterday_purchases = """
+                SELECT DISTINCT o.profileId, p.email, p.name, 
+                       COUNT(*) as num_purchases,
+                       SUM(CASE WHEN o.status != 'COMPLETED' THEN 1 ELSE 0 END) as open_orders
+                FROM ylift_api.orders o
+                JOIN ylift_api.profiles p ON o.profileId = p.id
+                WHERE DATE(o.createdAt) = %s AND o.profileId NOT IN ({})
+                GROUP BY o.profileId
+            """.format(','.join(['%s'] * len(profile_ids)))
+            cursor.execute(query_yesterday_purchases, (yesterday, *profile_ids))
+            
+            for row in cursor.fetchall():
+                profile_id, email, name, num_purchases, open_orders = row
+                active_accounts.append({
+                    "id": profile_id,
+                    "email": email,
+                    "name": name,
+                    "numPurchases": num_purchases,
+                    "openOrder": open_orders > 0,
+                    "hasCartItems": False  # Assuming no cart items for yesterday's purchases
                 })
 
         cursor.close()
