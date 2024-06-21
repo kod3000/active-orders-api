@@ -215,7 +215,6 @@ def get_active_accounts():
                 cursor.execute(query_orders, (profile_id, current_date))
                 order_result = cursor.fetchone()
                 num_purchases = order_result[0] if order_result else 0
-                open_orders = (order_result[1] or 0) > 0 if order_result else False
 
                 # Check for cart items
                 query_cart_items = """
@@ -232,7 +231,7 @@ def get_active_accounts():
                     "email": email,
                     "name": name,
                     "numPurchases": num_purchases,
-                    "openOrder": open_orders,
+                    "recentlyOrdered": num_purchases > 0,
                     "hasCartItems": has_cart_items
                 })
 
@@ -240,8 +239,7 @@ def get_active_accounts():
         if sum(account['numPurchases'] > 0 for account in active_accounts) < 5:
             query_yesterday_purchases = """
                 SELECT DISTINCT o.profileId, p.email, p.name, 
-                       COUNT(*) as num_purchases,
-                       SUM(CASE WHEN o.status != 'COMPLETED' THEN 1 ELSE 0 END) as open_orders
+                       COUNT(*) as num_purchases
                 FROM ylift_api.orders o
                 JOIN ylift_api.profiles p ON o.profileId = p.id
                 WHERE DATE(o.createdAt) = %s AND o.profileId NOT IN ({})
@@ -250,13 +248,13 @@ def get_active_accounts():
             cursor.execute(query_yesterday_purchases, (yesterday, *profile_ids))
             
             for row in cursor.fetchall():
-                profile_id, email, name, num_purchases, open_orders = row
+                profile_id, email, name, num_purchases = row
                 active_accounts.append({
                     "id": profile_id,
                     "email": email,
                     "name": name,
                     "numPurchases": num_purchases,
-                    "openOrder": open_orders > 0,
+                    "recentlyOrdered": num_purchases > 0,
                     "hasCartItems": False  # Assuming no cart items for yesterday's purchases
                 })
 
