@@ -157,7 +157,7 @@ def get_active_accounts():
 
         current_date = datetime.now().date()
 
-        # get cartIds from cartItems updated today
+        # Query to get cartIds from cartItems updated today
         query_cart_items = """
             SELECT DISTINCT cartId
             FROM ylift_api.cartItems
@@ -166,15 +166,23 @@ def get_active_accounts():
         cursor.execute(query_cart_items, (current_date,))
         cart_ids_from_items = [row[0] for row in cursor.fetchall()]
 
-        # get profileIds from carts updated today or associated with today's cartItems
-        query_carts = """
-            SELECT DISTINCT profileId
-            FROM ylift_api.carts
-            WHERE DATE(updatedAt) = %s
-            OR id IN (%s)
-        """
-        placeholders = ','.join(['%s'] * len(cart_ids_from_items))
-        cursor.execute(query_carts % placeholders, (current_date, *cart_ids_from_items))
+        # Query to get profileIds from carts updated today or associated with today's cartItems
+        if cart_ids_from_items:
+            query_carts = """
+                SELECT DISTINCT profileId
+                FROM ylift_api.carts
+                WHERE DATE(updatedAt) = %s
+                OR id IN ({})
+            """.format(','.join(['%s'] * len(cart_ids_from_items)))
+            cursor.execute(query_carts, (current_date, *cart_ids_from_items))
+        else:
+            query_carts = """
+                SELECT DISTINCT profileId
+                FROM ylift_api.carts
+                WHERE DATE(updatedAt) = %s
+            """
+            cursor.execute(query_carts, (current_date,))
+
         profile_ids = [row[0] for row in cursor.fetchall()]
 
         # If we have less than 8 profiles, get additional recent profiles
@@ -182,13 +190,12 @@ def get_active_accounts():
             query_additional = """
                 SELECT DISTINCT profileId
                 FROM ylift_api.carts
-                WHERE profileId NOT IN (%s)
+                WHERE profileId NOT IN ({})
                 ORDER BY updatedAt DESC
                 LIMIT %s
-            """
-            placeholders = ','.join(['%s'] * len(profile_ids))
+            """.format(','.join(['%s'] * len(profile_ids)))
             limit = 8 - len(profile_ids)
-            cursor.execute(query_additional % (placeholders, '%s'), (*profile_ids, limit))
+            cursor.execute(query_additional, (*profile_ids, limit))
             additional_profile_ids = [row[0] for row in cursor.fetchall()]
             profile_ids.extend(additional_profile_ids)
 
@@ -240,7 +247,6 @@ def get_active_accounts():
     except mysql.connector.Error as error:
         print(f"Error connecting to MySQL database: {error}")
         raise HTTPException(status_code=500, detail="Internal server error")
-
 
 @app.get("/probability")
 @sleep_and_retry
