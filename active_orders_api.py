@@ -304,7 +304,7 @@ def get_store_activity():
         cursor = connection.cursor()
 
         current_date = datetime.utcnow().date()
-        one_hour_ago_utc = datetime.utcnow() - timedelta(minutes=30)
+        one_hour_ago_utc = datetime.utcnow() - timedelta(hours=1)
 
         using_carts_activity_date = False
 
@@ -351,8 +351,8 @@ def get_store_activity():
             is_active = True
         else:
             elapsed_idle = str(datetime.utcnow() - last_active_utc)
-            # Check if the last activity was from cartItems and if it's been more than an hour
-            if last_active_utc == last_active_item_utc and (datetime.utcnow() - last_active_utc) > timedelta(hours=1):
+            # Check if the last activity was from cartItems and if it's been more than 20 mins
+            if last_active_utc == last_active_item_utc and (datetime.utcnow() - last_active_utc) > timedelta(minutes=20):
                 is_active = False
             else:
                 is_active = (datetime.utcnow() - last_active_utc) <= timedelta(hours=1)
