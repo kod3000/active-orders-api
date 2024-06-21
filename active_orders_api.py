@@ -303,23 +303,35 @@ def get_store_activity():
         connection = get_db_connection()
         cursor = connection.cursor()
 
+        current_date = datetime.now().date()
+        one_hour_ago = datetime.now() - timedelta(hours=1)
+
+        # Query to get the latest updatedAt considering both carts and cartItems
         query = """
-            SELECT MAX(updatedAt) AS last_active
-            FROM ylift_api.carts
+            SELECT 
+                GREATEST(
+                    MAX(c.updatedAt),
+                    COALESCE(MAX(ci.updatedAt), '1970-01-01')
+                ) AS last_active
+            FROM 
+                ylift_api.carts c
+            LEFT JOIN 
+                ylift_api.cartItems ci ON c.id = ci.cartId AND DATE(ci.updatedAt) = %s
         """
-        cursor.execute(query)
+        cursor.execute(query, (current_date,))
+        last_active = cursor.fetchone()[0]
 
-        last_active_utc = cursor.fetchone()[0]
-
-        query = """
-            SELECT COUNT(*) AS active_orders
-            FROM ylift_api.carts
-            WHERE updatedAt >= %s
+        # Query to count active carts in the last hour
+        query_active_carts = """
+            SELECT COUNT(DISTINCT c.id) AS active_carts
+            FROM ylift_api.carts c
+            LEFT JOIN ylift_api.cartItems ci ON c.id = ci.cartId
+            WHERE 
+                c.updatedAt >= %s
+                OR (ci.updatedAt >= %s AND DATE(ci.updatedAt) = %s)
         """
-        one_hour_ago_utc = datetime.utcnow() - timedelta(hours=1)
-        cursor.execute(query, (one_hour_ago_utc,))
-
-        active_orders = cursor.fetchone()[0]
+        cursor.execute(query_active_carts, (one_hour_ago, one_hour_ago, current_date))
+        active_carts = cursor.fetchone()[0]
 
         cursor.close()
         connection.close()
@@ -328,18 +340,14 @@ def get_store_activity():
         active_idle = "00:00:00"
         is_active = False
 
-        if active_orders > 0:
-            active_idle = str(datetime.utcnow() - one_hour_ago_utc)
+        if active_carts > 0 and last_active >= one_hour_ago:
+            active_idle = str(datetime.now() - last_active)
             is_active = True
         else:
-            elapsed_idle = str(datetime.utcnow() - last_active_utc)
-
-        # Convert last_active from UTC to New York timezone
-        ny_tz = timezone('America/New_York')
-        last_active_ny = utc.localize(last_active_utc).astimezone(ny_tz)
+            elapsed_idle = str(datetime.now() - last_active)
 
         store_activity_data = {
-            "last_active": last_active_ny.strftime("%Y-%m-%d %H:%M:%S"),
+            "last_active": last_active.strftime("%Y-%m-%d %H:%M:%S"),
             "elapsed_idle": elapsed_idle,
             "active_idle": active_idle,
             "is_active": is_active
