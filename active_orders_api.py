@@ -345,7 +345,7 @@ def get_store_activity():
         is_active = False
 
         if active_orders > 0:
-            active_idle = str(datetime.utcnow() - one_hour_ago_utc)
+            active_idle = str(datetime.utcnow() - last_active_utc)
             is_active = True
         else:
             elapsed_idle = str(datetime.utcnow() - last_active_utc)
