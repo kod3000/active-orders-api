@@ -304,7 +304,9 @@ def get_store_activity():
         cursor = connection.cursor()
 
         current_date = datetime.utcnow().date()
-        one_hour_ago_utc = datetime.utcnow() - timedelta(hours=1)
+        one_hour_ago_utc = datetime.utcnow() - timedelta(minutes=30)
+
+        using_carts_activity_date = False
 
         # Query to get the latest updatedAt from carts
         query_carts = """
