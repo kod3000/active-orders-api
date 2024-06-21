@@ -155,60 +155,71 @@ def get_active_accounts():
         connection = get_db_connection()
         cursor = connection.cursor()
 
-        query = """
-            SELECT profileId, MAX(updatedAt) AS updatedAt
-            FROM ylift_api.carts
-            WHERE DATE(updatedAt) = CURDATE()
-            GROUP BY profileId
-            ORDER BY MAX(updatedAt) DESC
-        """
-        cursor.execute(query)
+        current_date = datetime.now().date()
 
+        # get cartIds from cartItems updated today
+        query_cart_items = """
+            SELECT DISTINCT cartId
+            FROM ylift_api.cartItems
+            WHERE DATE(updatedAt) = %s
+        """
+        cursor.execute(query_cart_items, (current_date,))
+        cart_ids_from_items = [row[0] for row in cursor.fetchall()]
+
+        # get profileIds from carts updated today or associated with today's cartItems
+        query_carts = """
+            SELECT DISTINCT profileId
+            FROM ylift_api.carts
+            WHERE DATE(updatedAt) = %s
+            OR id IN (%s)
+        """
+        placeholders = ','.join(['%s'] * len(cart_ids_from_items))
+        cursor.execute(query_carts % placeholders, (current_date, *cart_ids_from_items))
         profile_ids = [row[0] for row in cursor.fetchall()]
 
+        # If we have less than 8 profiles, get additional recent profiles
         if len(profile_ids) < 8:
-            query = """
-                SELECT profileId, MAX(updatedAt) AS updatedAt
+            query_additional = """
+                SELECT DISTINCT profileId
                 FROM ylift_api.carts
-                WHERE DATE(updatedAt) < CURDATE()
-                    AND profileId NOT IN (%s)
-                GROUP BY profileId
-                ORDER BY MAX(updatedAt) DESC
+                WHERE profileId NOT IN (%s)
+                ORDER BY updatedAt DESC
                 LIMIT %s
             """
             placeholders = ','.join(['%s'] * len(profile_ids))
             limit = 8 - len(profile_ids)
-            cursor.execute(query % (placeholders, limit), tuple(profile_ids))
-            profile_ids.extend([row[0] for row in cursor.fetchall()])
+            cursor.execute(query_additional % (placeholders, '%s'), (*profile_ids, limit))
+            additional_profile_ids = [row[0] for row in cursor.fetchall()]
+            profile_ids.extend(additional_profile_ids)
 
         active_accounts = []
 
         for profile_id in profile_ids:
-            query = """
+            query_profile = """
                 SELECT email, name
                 FROM ylift_api.profiles
                 WHERE id = %s
             """
-            cursor.execute(query, (profile_id,))
+            cursor.execute(query_profile, (profile_id,))
             result = cursor.fetchone()
 
             if result:
                 email, name = result
                 recently_ordered = False
 
-                query = """
+                query_recent_order = """
                     SELECT COUNT(*)
                     FROM ylift_api.orders
                     WHERE profileId = %s
-                        AND DATE_FORMAT(createdAt, '%%Y-%%m-%%d %%H:%%i') = DATE_FORMAT((
+                        AND DATE_FORMAT(createdAt, '%Y-%m-%d %H:%i') = DATE_FORMAT((
                             SELECT updatedAt
                             FROM ylift_api.carts
                             WHERE profileId = %s
                             ORDER BY updatedAt DESC
                             LIMIT 1
-                        ), '%%Y-%%m-%%d %%H:%%i')
+                        ), '%Y-%m-%d %H:%i')
                 """
-                cursor.execute(query, (profile_id, profile_id))
+                cursor.execute(query_recent_order, (profile_id, profile_id))
                 order_count = cursor.fetchone()[0]
 
                 if order_count > 0:
@@ -229,6 +240,7 @@ def get_active_accounts():
     except mysql.connector.Error as error:
         print(f"Error connecting to MySQL database: {error}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @app.get("/probability")
 @sleep_and_retry
@@ -308,7 +320,7 @@ def get_store_activity():
 
         using_carts_activity_date = False
 
-        # Query to get the latest updatedAt from carts
+        # get the latest updatedAt from carts
         query_carts = """
             SELECT MAX(updatedAt) AS last_active_cart
             FROM ylift_api.carts
@@ -316,7 +328,7 @@ def get_store_activity():
         cursor.execute(query_carts)
         last_active_cart_utc = cursor.fetchone()[0]
 
-        # Query to get the latest updatedAt from cartItems for the current date
+        # get the latest updatedAt from cartItems for the current date
         query_cart_items = """
             SELECT MAX(ci.updatedAt) AS last_active_item
             FROM ylift_api.cartItems ci
@@ -329,7 +341,7 @@ def get_store_activity():
         # Determine the most recent activity
         last_active_utc = max(last_active_cart_utc, last_active_item_utc) if last_active_item_utc else last_active_cart_utc
 
-        # Query to count active orders in the last hour
+        # count active orders in the last hour
         query_active_orders = """
             SELECT COUNT(DISTINCT c.id) AS active_orders
             FROM ylift_api.carts c
