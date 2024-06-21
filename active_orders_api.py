@@ -299,7 +299,7 @@ def get_store_activity():
     #     if api_key != API_KEY:
     #         raise HTTPException(status_code=400, detail="Invalid API key")
 
-   try:
+    try:
         connection = get_db_connection()
         cursor = connection.cursor()
 
@@ -371,6 +371,8 @@ def get_store_activity():
     except mysql.connector.Error as error:
         print(f"Error connecting to MySQL database: {error}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @app.get("/backup")
 @sleep_and_retry
 @limits(calls=2, period=3600)
