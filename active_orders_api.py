@@ -553,7 +553,7 @@ def perform_backup_sync():
         for table in tables:
             dump_file = output_dir + table + '.sql'
             dump_cmd = f'/usr/local/bin/mysqldump --defaults-file="mysql_login.cnf" -h {DB_CONFIG["host"]} -P {DB_CONFIG["port"]} --skip-column-statistics --no-tablespaces --routines --events --triggers {DB_CONFIG["database"]} {table} > {dump_file}'
-            print(dump_cmd)
+            # print(dump_cmd)
             os.system(dump_cmd)
 
         print(f'Backup completed at {now}')
