@@ -8,6 +8,8 @@ from config import DB_CONFIG, API_KEY, BACK_UP_LOC
 import os
 import asyncio
 import json
+import threading
+import time
 from typing import Optional
 import calendar
 from pytz import timezone, utc 
@@ -427,6 +429,7 @@ def backup_database():
         return {"message": "Backup skipped. Already performed within the last 2 hours."}
 
 
+
 @app.get("/sales")
 @sleep_and_retry
 @limits(calls=2, period=60)  # Rate limit: 2 requests per minute
@@ -563,3 +566,18 @@ def perform_backup_sync():
         print(f'Backup already exists for {date_str}. Skipping backup.')
 
     os.chdir(current_dir)
+
+
+
+def automated_backup():
+    global last_backup_time
+    while True:
+        current_time = datetime.now()
+        if last_backup_time is None or (current_time - last_backup_time) >= timedelta(hours=2):
+            print("Automated backup triggered")
+            perform_backup_sync()
+        time.sleep(600)  # sleep 10 mins 
+
+# automated backups..
+backup_thread = threading.Thread(target=automated_backup, daemon=True)
+backup_thread.start()
