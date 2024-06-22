@@ -535,7 +535,7 @@ def perform_backup_sync():
     output_dir = f'{year}/{date_str}/'
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-        print(f'Backup directory created: {output_dir}')
+        print(f'\tBackup directory created: {output_dir}')
 
         # Create a login path file with the username and password
         with open('mysql_login.cnf', 'w') as f:
@@ -556,14 +556,14 @@ def perform_backup_sync():
             # print(dump_cmd)
             os.system(dump_cmd)
 
-        print(f'Backup completed at {now}')
+        print(f'\tBackup completed at {now}')
 
         # Remove the login path file
         os.remove('mysql_login.cnf')
 
         last_backup_time = now
     else:
-        print(f'Backup already exists for {date_str}. Skipping backup.')
+        print(f'\tBackup already exists for {date_str}. Skipping backup.')
 
     os.chdir(current_dir)
 
@@ -574,7 +574,7 @@ def automated_backup():
     while True:
         current_time = datetime.now()
         if last_backup_time is None or (current_time - last_backup_time) >= timedelta(hours=2):
-            print("Automated backup triggered")
+            print("\tAutomated backup triggered")
             perform_backup_sync()
         time.sleep(600)  # sleep 10 mins 
 
