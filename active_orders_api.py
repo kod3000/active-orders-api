@@ -20,6 +20,11 @@ app = FastAPI()
 
 api_key_header = APIKeyHeader(name="X-API-Key")
 
+VERSION_INFO = {
+    "version": "1.2.0",
+    "downloadURL": "/updates/YourApp-1.2.0.zip"
+}
+
 class ActiveCart(BaseModel):
     profileId: int
     createdAt: datetime
@@ -34,8 +39,6 @@ last_calculation_date = None
 
 def calculate_activity_probability():
     global activity_data, last_calculation_date
-
-
 
     current_date = datetime.now().date()
 
@@ -106,6 +109,14 @@ def health_check():
     except mysql.connector.Error as error:
         print(f"Error connecting to MySQL database: {error}")
         return {"status": "Error", "database": "Not Connected"}
+
+
+@app.get("/version")
+@sleep_and_retry
+@limits(calls=10, period=60) 
+def get_version_info():
+    return VERSION_INFO
+
 
 @app.get("/carts")
 @sleep_and_retry
