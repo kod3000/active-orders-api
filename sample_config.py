@@ -8,4 +8,7 @@ DB_CONFIG = {
 
 API_KEY = "your_api_key"
 
+API_ID = "your_api_id"
+TRANSACTION_KEY = "your_transaction_key"
+
 BACK_UP_LOC = '/location/backup/'
