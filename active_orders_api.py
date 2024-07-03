@@ -1,18 +1,20 @@
-import mysql.connector
+from authorizenet import apicontractsv1
+from authorizenet.apicontrollers import getTransactionListForCustomerController
+from datetime import datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.security import APIKeyHeader
-from datetime import datetime, timedelta
-from ratelimit import limits, sleep_and_retry
+from lxml import etree
 from pydantic import BaseModel
-from config import DB_CONFIG, API_KEY, BACK_UP_LOC
-import os
-import asyncio
-import json
-import threading
-import time
+from pytz import timezone, utc 
+from ratelimit import limits, sleep_and_retry
 from typing import Optional
 import calendar
-from pytz import timezone, utc 
+import mysql.connector
+import os
+import threading
+import time
+
+from config import DB_CONFIG, API_KEY, API_ID, TRANSACTION_KEY, BACK_UP_LOC
 
 last_backup_time = None
 
@@ -208,7 +210,7 @@ def get_active_accounts():
 
         for profile_id in profile_ids:
             query_profile = """
-                SELECT email, name
+                SELECT email, name, customerid
                 FROM ylift_api.profiles
                 WHERE id = %s
             """
@@ -216,7 +218,7 @@ def get_active_accounts():
             result = cursor.fetchone()
 
             if result:
-                email, name = result
+                email, name, customer_id = result
 
                 # Check for purchases and open orders
                 query_orders = """
@@ -243,6 +245,7 @@ def get_active_accounts():
                     "id": profile_id,
                     "email": email,
                     "name": name,
+                    "customerId": customer_id,
                     "numPurchases": num_purchases,
                     "recentlyOrdered": num_purchases > 0,
                     "hasCartItems": has_cart_items
@@ -251,7 +254,7 @@ def get_active_accounts():
         # If we have less than 5 accounts with purchases today, add accounts with purchases from yesterday
         if sum(account['numPurchases'] > 0 for account in active_accounts) < 5:
             query_yesterday_purchases = """
-                SELECT DISTINCT o.profileId, p.email, p.name, 
+                SELECT DISTINCT o.profileId, p.email, p.name, p.customerid, 
                        COUNT(*) as num_purchases
                 FROM ylift_api.orders o
                 JOIN ylift_api.profiles p ON o.profileId = p.id
@@ -261,11 +264,12 @@ def get_active_accounts():
             cursor.execute(query_yesterday_purchases, (yesterday, *profile_ids))
             
             for row in cursor.fetchall():
-                profile_id, email, name, num_purchases = row
+                profile_id, email, name, customer_id, num_purchases = row
                 active_accounts.append({
                     "id": profile_id,
                     "email": email,
                     "name": name,
+                    "customerId": customer_id,
                     "numPurchases": num_purchases,
                     "recentlyOrdered": num_purchases > 0,
                     "hasCartItems": False  # Assuming no cart items for yesterday's purchases
@@ -423,6 +427,90 @@ def get_store_activity():
     except mysql.connector.Error as error:
         print(f"Error connecting to MySQL database: {error}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+def parse_xml(xml_string: str):
+    # Get the content of xml
+    #     - Remove the first line:     `<getTransactionListForCustomerRequest xmlns="AnetApi/xml/v1/schema/AnetApiSchema.xsd">`
+    #     - Remove the last two lines: `</getTransactionListForCustomerRequest>` and ``
+    lines = [line.strip() for line in xml_string.split("\n")][1:-2]
+
+    def get_key_from_line(index: int):
+        line = lines[index]
+        return line[line.find("<")+1:line.find(">")]
+
+    def get_value_from_line(index: int):
+        line = lines[index]
+        return line[line.find(">")+1:line.find("</")]
+
+    def xml_to_dict(start: int, end: int):
+        dict_result = {}
+        index = start
+
+        while index < end:
+            key = get_key_from_line(index)
+            _key = f'</{key}>'
+
+            if lines[index].find(_key) != -1:
+                value = get_value_from_line(index)
+                index += 1
+            else:
+                next_index = index + 1
+                while next_index < end and lines[next_index] != _key:
+                    next_index += 1
+
+                if next_index >= end:
+                    raise ValueError("Malformed XML")
+
+                value = xml_to_dict(index + 1, next_index)
+                index = next_index + 1
+
+            if key in dict_result:
+                if isinstance(dict_result[key], list):
+                    dict_result[key].append(value)
+                else:
+                    dict_result[key] = [dict_result[key], value]
+            else:
+                dict_result[key] = value
+
+        return dict_result
+
+    return xml_to_dict(0, len(lines))
+
+
+@app.get("/transactions/{customer_id}")
+def get_transactions_today(customer_id: str):
+    try:
+        merchant_auth = apicontractsv1.merchantAuthenticationType()
+        merchant_auth.name = API_ID
+        merchant_auth.transactionKey = TRANSACTION_KEY
+
+        request = apicontractsv1.getTransactionListForCustomerRequest()
+        request.merchantAuthentication = merchant_auth
+        request.customerProfileId = customer_id
+
+        controller = getTransactionListForCustomerController(request)
+        controller.execute()
+
+        response = controller.getresponse()
+
+        if response is None or response.messages.resultCode != "Ok":
+            raise HTTPException(status_code=500, detail="Error fetching transactions")
+
+        xml_string = etree.tostring(response, pretty_print=True)
+        parsed_xml = parse_xml(xml_string.decode())
+
+        # Filter transactions for today
+        today = datetime.utcnow().date()
+        today_transactions = [
+            transaction for transaction in parsed_xml["transactions"]["transaction"]
+            if datetime.strptime(transaction["submitTimeUTC"], "%Y-%m-%dT%H:%M:%S.%fZ").date() == today
+        ]
+
+        return today_transactions
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{e}")
 
 
 @app.get("/backup")
