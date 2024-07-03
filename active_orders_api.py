@@ -160,11 +160,10 @@ def get_active_carts(api_key: str = Depends(api_key_header)):
 
 @app.get("/accounts")
 @sleep_and_retry
-@limits(calls=50, period=60) 
-def get_active_accounts():
-# def get_active_accounts(api_key: str = Depends(api_key_header)):
-    # if api_key != API_KEY:
-    #     raise HTTPException(status_code=400, detail="Invalid API key")
+@limits(calls=50, period=60)
+def get_active_accounts(api_key: str = Depends(api_key_header)):
+    if api_key != API_KEY:
+        raise HTTPException(status_code=400, detail="Invalid API key")
 
     try:
         connection = get_db_connection()
