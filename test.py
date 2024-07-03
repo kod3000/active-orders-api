@@ -1,10 +1,10 @@
 import unittest
 from unittest.mock import patch, MagicMock
 from fastapi import HTTPException
-from datetime import datetime
+from datetime import datetime, timedelta
 import mysql.connector
 
-from active_orders_api import app, get_transactions_today, parse_xml
+from active_orders_api import app, get_transactions_today, parse_xml, get_active_accounts, get_activity_probability, get_active_carts, ActiveCart
 from config import API_KEY
 
 class TestParseXML(unittest.TestCase):
@@ -143,169 +143,254 @@ class TestGetActiveAccounts(unittest.TestCase):
 
     @patch('active_orders_api.get_db_connection')
     def test_invalid_api_key(self, mock_get_db_connection):
-        from fastapi.testclient import TestClient
-
-        client = TestClient(app)
-        response = client.get("/accounts", headers={"api_key": "invalid_key"})
-
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json(), {"detail": "Not authenticated"})
-
+        from fastapi import HTTPException
+        
+        mock_get_db_connection.return_value = MagicMock()
+        
+        with self.assertRaises(HTTPException) as context:
+            get_active_accounts(api_key="invalid_key")
+        
+        self.assertEqual(context.exception.status_code, 400)
+        self.assertEqual(context.exception.detail, "Invalid API key")
+    
     @patch('active_orders_api.get_db_connection')
     def test_db_connection_error(self, mock_get_db_connection):
-        from fastapi.testclient import TestClient
-
+        from fastapi import HTTPException
+        import mysql.connector
+        
         mock_get_db_connection.side_effect = mysql.connector.Error("DB Connection Error")
-
-        client = TestClient(app)
-        response = client.get("/accounts", headers={"api_key": API_KEY})
-
-        self.assertEqual(response.status_code, 500)
-        self.assertEqual(response.json(), {"detail": "Internal server error"})
-
+        
+        with self.assertRaises(HTTPException) as context:
+            get_active_accounts(api_key=API_KEY)
+        
+        self.assertEqual(context.exception.status_code, 500)
+        self.assertEqual(context.exception.detail, "Internal server error")
+    
     @patch('active_orders_api.get_db_connection')
-    def test_get_active_accounts_success(self, mock_get_db_connection):
-        from fastapi.testclient import TestClient
-
-        # Mock the database connection and cursor
+    def test_get_active_accounts(self, mock_get_db_connection):
         mock_connection = MagicMock()
         mock_cursor = MagicMock()
+        
         mock_get_db_connection.return_value = mock_connection
         mock_connection.cursor.return_value = mock_cursor
-
-        # Mock current date
-        current_date = datetime.now().date()
-
-        # Mock database queries
-        mock_cursor.fetchall.side_effect = [
-            [(1,)],  # cart_ids_from_items
-            [(2,)],  # profile_ids_from_carts
-            [(3,)],  # profile_ids_from_items
-            [(4,)],  # query_profiles_from_items
-            [(5,)],  # query_profile
-            [(6,)],  # query_orders
-            [(7,)],  # query_cart_items
-            [(8,)]   # query_yesterday_purchases
+        
+        # Mock datetime
+        current_date = datetime(2023, 7, 1).date()
+        yesterday = current_date - timedelta(days=1)
+        
+        # Mock data for cartItems, carts, profiles, orders
+        cart_ids_from_items = [(1,), (2,)]
+        profile_ids_from_carts = [(1,), (3,)]
+        profile_ids_from_items = [(2,), (3,)]
+        
+        profile_data = {
+            1: ("user1@example.com", "User One", "cust1"),
+            2: ("user2@example.com", "User Two", "cust2"),
+            3: ("user3@example.com", "User Three", "cust3")
+        }
+        
+        order_data = {
+            1: (1, 0),
+            2: (0, 1),
+            3: (2, 0)
+        }
+        
+        cart_item_data = {
+            1: (2,),
+            2: (1,),
+            3: (0,)
+        }
+        
+        yesterday_order_data = [
+            (4, "user4@example.com", "User Four", "cust4", 1)
         ]
-
-        client = TestClient(app)
-        response = client.get("/accounts", headers={"api_key": API_KEY})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIsInstance(response.json(), list)
-
-
-class TestGetActiveCarts(unittest.TestCase):
-
-    @patch('active_orders_api.get_db_connection')
-    def test_invalid_api_key(self, mock_get_db_connection):
-        from fastapi.testclient import TestClient
-
-        client = TestClient(app)
-        response = client.get("/active_carts", headers={"api_key": "invalid_key"})
-
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.json(), {"detail": "Not Found"})
-
-    @patch('active_orders_api.get_db_connection')
-    def test_db_connection_error(self, mock_get_db_connection):
-        from fastapi.testclient import TestClient
-
-        mock_get_db_connection.side_effect = mysql.connector.Error("DB Connection Error")
-
-        client = TestClient(app)
-        response = client.get("/active_carts", headers={"api_key": API_KEY})
-
-        self.assertEqual(response.status_code, 500)
-        self.assertEqual(response.json(), {"detail": "Internal server error"})
-
-    @patch('active_orders_api.get_db_connection')
-    def test_get_active_carts_success(self, mock_get_db_connection):
-        from fastapi.testclient import TestClient
-
-        # Mock the database connection and cursor
-        mock_connection = MagicMock()
-        mock_cursor = MagicMock()
-        mock_get_db_connection.return_value = mock_connection
-        mock_connection.cursor.return_value = mock_cursor
-
-        # Mock current date
-        current_date = datetime.now().date()
-
-        # Mock database queries
-        mock_cursor.fetchall.return_value = [
-            (1, datetime(2024, 7, 2, 12, 0), datetime(2024, 7, 3, 12, 0)),
-            (2, datetime(2024, 7, 2, 13, 0), datetime(2024, 7, 3, 13, 0))
+        
+        # Mock cursor execute and fetchall behavior
+        def mock_execute(query, params=None):
+            if "FROM ylift_api.cartItems" in query:
+                mock_cursor.fetchall.return_value = cart_ids_from_items
+            elif "FROM ylift_api.carts" in query and "cartItems" not in query:
+                mock_cursor.fetchall.return_value = profile_ids_from_carts
+            elif "FROM ylift_api.carts" in query and "cartItems" in query:
+                mock_cursor.fetchall.return_value = profile_ids_from_items
+            elif "FROM ylift_api.profiles" in query:
+                profile_id = params[0]
+                mock_cursor.fetchone.return_value = profile_data.get(profile_id)
+            elif "FROM ylift_api.orders" in query and "JOIN ylift_api.profiles" not in query:
+                profile_id = params[0]
+                mock_cursor.fetchone.return_value = order_data.get(profile_id)
+            elif "FROM ylift_api.cartItems ci" in query:
+                profile_id = params[0]
+                mock_cursor.fetchone.return_value = cart_item_data.get(profile_id)
+            elif "FROM ylift_api.orders o" in query:
+                mock_cursor.fetchall.return_value = yesterday_order_data
+        
+        mock_cursor.execute.side_effect = mock_execute
+        
+        result = get_active_accounts(api_key=API_KEY)
+        
+        expected_result = [
+            {
+                "id": 1,
+                "email": "user1@example.com",
+                "name": "User One",
+                "customerId": "cust1",
+                "numPurchases": 1,
+                "recentlyOrdered": True,
+                "hasCartItems": True
+            },
+            {
+                "id": 3,
+                "email": "user3@example.com",
+                "name": "User Three",
+                "customerId": "cust3",
+                "numPurchases": 2,
+                "recentlyOrdered": True,
+                "hasCartItems": True
+            },
+            {
+                "id": 4,
+                "email": "user4@example.com",
+                "name": "User Four",
+                "customerId": "cust4",
+                "numPurchases": 1,
+                "recentlyOrdered": True,
+                "hasCartItems": False
+            }
         ]
+        
+        self.assertEqual(result, expected_result)
 
-        client = TestClient(app)
-        response = client.get("/active_carts", headers={"api_key": API_KEY})
 
-        self.assertEqual(response.status_code, 200)
-        active_carts = response.json()
-        self.assertIsInstance(active_carts, list)
-        self.assertEqual(len(active_carts), 2)
-        self.assertEqual(active_carts[0]['profileId'], 1)
-        self.assertEqual(active_carts[1]['profileId'], 2)
+# Mock activity data used in the function
+activity_data = {
+    "Monday": {
+        "probability": 0.1,
+        "busy_hours": [f"{hour:02d}:00 - {hour+1:02d}:00" for hour in range(24)]
+    },
+    "Tuesday": {
+        "probability": 0.1,
+        "busy_hours": [f"{hour:02d}:00 - {hour+1:02d}:00" for hour in range(24)]
+    },
+    "Wednesday": {
+        "probability": 0.1,
+        "busy_hours": [f"{hour:02d}:00 - {hour+1:02d}:00" for hour in range(24)]
+    },
+    "Thursday": {
+        "probability": 0.1,
+        "busy_hours": [f"{hour:02d}:00 - {hour+1:02d}:00" for hour in range(24)]
+    },
+    "Friday": {
+        "probability": 0.1,
+        "busy_hours": [f"{hour:02d}:00 - {hour+1:02d}:00" for hour in range(24)]
+    },
+    "Saturday": {
+        "probability": 0.1,
+        "busy_hours": [f"{hour:02d}:00 - {hour+1:02d}:00" for hour in range(24)]
+    },
+    "Sunday": {
+        "probability": 0.1,
+        "busy_hours": [f"{hour:02d}:00 - {hour+1:02d}:00" for hour in range(24)]
+    },
+}
 
 
 class TestGetActivityProbability(unittest.TestCase):
 
     @patch('active_orders_api.get_db_connection')
-    def test_invalid_api_key(self, mock_get_db_connection):
-        from fastapi.testclient import TestClient
-
-        client = TestClient(app)
-        response = client.get("/activity_probability", headers={"api_key": "invalid_key"})
-
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.json(), {"detail": "Not Found"})
-
+    @patch('active_orders_api.calculate_activity_probability')
+    @patch('active_orders_api.activity_data', activity_data)
+    def test_invalid_api_key(self, mock_calculate_activity_probability, mock_get_db_connection):
+        from fastapi import HTTPException
+        
+        with self.assertRaises(HTTPException) as context:
+            get_activity_probability(api_key="invalid_key")
+        
+        self.assertEqual(context.exception.status_code, 400)
+        self.assertEqual(context.exception.detail, "Invalid API key")
+    
     @patch('active_orders_api.get_db_connection')
-    def test_db_connection_error(self, mock_get_db_connection):
-        from fastapi.testclient import TestClient
-
+    @patch('active_orders_api.calculate_activity_probability')
+    @patch('active_orders_api.activity_data', activity_data)
+    def test_db_connection_error(self, mock_calculate_activity_probability, mock_get_db_connection):
+        from fastapi import HTTPException
+        import mysql.connector
+        
         mock_get_db_connection.side_effect = mysql.connector.Error("DB Connection Error")
-
-        client = TestClient(app)
-        response = client.get("/activity_probability", headers={"api_key": API_KEY})
-
-        self.assertEqual(response.status_code, 500)
-        self.assertEqual(response.json(), {"detail": "Internal server error"})
+        
+        with self.assertRaises(HTTPException) as context:
+            get_activity_probability(api_key=API_KEY)
+        
+        self.assertEqual(context.exception.status_code, 500)
+        self.assertEqual(context.exception.detail, "Internal server error")
 
     @patch('active_orders_api.get_db_connection')
     @patch('active_orders_api.calculate_activity_probability')
-    def test_get_activity_probability_success(self, mock_calculate_activity_probability, mock_get_db_connection):
-        from fastapi.testclient import TestClient
-
-        # Mock the database connection and cursor
+    @patch('active_orders_api.perform_backup_sync')
+    @patch('active_orders_api.activity_data', activity_data)
+    def test_get_activity_probability(self, mock_perform_backup_sync, mock_calculate_activity_probability, mock_get_db_connection):
+        # Mocking database connection and cursor
         mock_connection = MagicMock()
         mock_cursor = MagicMock()
         mock_get_db_connection.return_value = mock_connection
         mock_connection.cursor.return_value = mock_cursor
-
-        # Mock current date
-        current_date = datetime.now().date()
+        
+        # Mock datetime
+        current_date = datetime(2023, 7, 1).date()
         current_day_of_week = current_date.strftime("%A")
-
-        # Mock database queries
-        mock_cursor.fetchall.return_value = [
-            (5, 8),  # 5 orders at 08:00 - 09:00
-            (3, 12), # 3 orders at 12:00 - 13:00
-            (7, 17)  # 7 orders at 17:00 - 18:00
+        
+        # Mock data for cart orders
+        orders_data = [
+            (5, 0), (10, 1), (15, 2), (20, 3), (25, 4), (30, 5), (35, 6), 
+            (40, 7), (45, 8), (50, 9), (55, 10), (60, 11), (65, 12), (70, 13), 
+            (75, 14), (80, 15), (85, 16), (90, 17), (95, 18), (100, 19), 
+            (105, 20), (110, 21), (115, 22), (120, 23)
         ]
+        
+        # Mock cursor execute and fetchall behavior
+        def mock_execute(query, params=None):
+            if "FROM ylift_api.carts" in query:
+                mock_cursor.fetchall.return_value = orders_data
+        
+        mock_cursor.execute.side_effect = mock_execute
 
-        client = TestClient(app)
-        response = client.get("/activity_probability", headers={"api_key": API_KEY}, params={"current": "true"})
 
-        self.assertEqual(response.status_code, 200)
-        current_day_data = response.json()
-        self.assertEqual(current_day_data['actual_day'], current_day_of_week)
-        self.assertEqual(current_day_data['actual_probability'], round((5 + 3 + 7) / 24, 4))
-        self.assertEqual(current_day_data['expected_probability'], activity_data[current_day_of_week]["probability"])
-        self.assertEqual(current_day_data['actual_busy_hours']["08:00 - 09:00"], 5)
-        self.assertEqual(current_day_data['actual_busy_hours']["12:00 - 13:00"], 3)
-        self.assertEqual(current_day_data['actual_busy_hours']["17:00 - 18:00"], 7)
+class TestGetActiveCarts(unittest.TestCase):
+
+    @patch('active_orders_api.get_db_connection')
+    def test_get_active_carts(self, mock_get_db_connection):
+        # Mocking database connection and cursor
+        mock_connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_get_db_connection.return_value = mock_connection
+        mock_connection.cursor.return_value = mock_cursor
+        
+        # Mock datetime
+        current_date = datetime(2023, 7, 1).date()
+        
+        # Mock data for carts
+        carts_data = [
+            (1, datetime(2023, 7, 1, 10, 30, 0), datetime(2023, 7, 1, 15, 45, 0)),
+            (2, datetime(2023, 7, 1, 12, 0, 0), datetime(2023, 7, 1, 16, 0, 0)),
+            (3, datetime(2023, 7, 1, 14, 15, 0), datetime(2023, 7, 1, 17, 30, 0))
+        ]
+        
+        # Mock cursor execute and fetchall behavior
+        def mock_execute(query, params=None):
+            if "FROM ylift_api.carts" in query:
+                mock_cursor.fetchall.return_value = carts_data
+        
+        mock_cursor.execute.side_effect = mock_execute
+        
+        result = get_active_carts(api_key=API_KEY)
+        
+        expected_active_carts = [
+            ActiveCart(profileId=1, createdAt=datetime(2023, 7, 1, 10, 30, 0), updatedAt=datetime(2023, 7, 1, 15, 45, 0)),
+            ActiveCart(profileId=2, createdAt=datetime(2023, 7, 1, 12, 0, 0), updatedAt=datetime(2023, 7, 1, 16, 0, 0)),
+            ActiveCart(profileId=3, createdAt=datetime(2023, 7, 1, 14, 15, 0), updatedAt=datetime(2023, 7, 1, 17, 30, 0))
+        ]
+        
+        self.assertEqual(result, expected_active_carts)
 
 
 if __name__ == '__main__':

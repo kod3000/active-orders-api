@@ -286,11 +286,9 @@ def get_active_accounts(api_key: str = Depends(api_key_header)):
 @app.get("/probability")
 @sleep_and_retry
 @limits(calls=2, period=60) 
-def get_activity_probability( current: Optional[bool] = None, ):
-# def get_activity_probability(api_key: str = Depends(api_key_header)):
-    # if api_key != API_KEY:
-    #     raise HTTPException(status_code=400, detail="Invalid API key")
-
+def get_activity_probability(api_key: str = Depends(api_key_header), current: Optional[bool] = None, ):
+    if api_key != API_KEY:
+        raise HTTPException(status_code=400, detail="Invalid API key")
 
     current = current or False
 
